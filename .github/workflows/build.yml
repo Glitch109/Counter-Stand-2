@@ -1,0 +1,57 @@
+name: Build APK from ZIP
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  android:
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:4.3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unpack project ZIP
+        run: |
+          ZIP=$(ls *.zip 2>/dev/null | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "В корне репозитория нет .zip файла с проектом. Загрузите архив и запустите сборку снова."
+            exit 1
+          fi
+          echo "Распаковываю: $ZIP"
+          mkdir -p game
+          unzip -oq "$ZIP" -d game
+          PROJ=$(dirname "$(find game -name project.godot | head -n 1)")
+          if [ ! -f "$PROJ/project.godot" ]; then
+            echo "В архиве не найден project.godot"
+            exit 1
+          fi
+          echo "PROJ=$PROJ" >> "$GITHUB_ENV"
+
+      - name: Setup Godot
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mkdir -v -p ~/.config/
+          mv /root/.config/godot ~/.config/godot
+          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+
+      - name: Import project
+        run: |
+          cd "$PROJ"
+          godot --headless --verbose --import || true
+
+      - name: Export APK
+        run: |
+          cd "$PROJ"
+          mkdir -p build
+          godot --headless --verbose --export-debug "Android" build/game.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: game-apk
+          path: ${{ env.PROJ }}/build/game.apk
